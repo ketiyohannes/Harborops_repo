@@ -13,6 +13,10 @@
     "lint": "eslint .",
     "test": "vitest",
     "test:run": "vitest run",
+    "test:e2e": "npx playwright test",
+    "test:e2e:record": "npx playwright test e2e/harborops-record.spec.js --project=chromium",
+    "test:e2e:ui": "npx playwright test --ui",
+    "test:e2e:install": "npx playwright install chromium",
     "build": "vite build",
     "preview": "vite preview --host 0.0.0.0 --port 4173"
   },
@@ -31,6 +35,7 @@
     "@vitejs/plugin-react": "6.0.1",
     "autoprefixer": "10.4.20",
     "@eslint/js": "9.39.4",
+    "@playwright/test": "1.55.1",
     "eslint": "9.39.4",
     "eslint-plugin-react": "7.37.5",
     "eslint-plugin-react-hooks": "5.2.0",

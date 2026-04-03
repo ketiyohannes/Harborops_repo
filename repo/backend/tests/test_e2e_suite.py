@@ -1014,17 +1014,24 @@ class EndToEndSuite(TestCase):
         self.assertEqual(estimate.data["total_cents"], 4461)
 
     def test_16_booking_cancellation_cutoff_enforced(self):
+        pickup_start = (timezone.now() + timedelta(days=2)).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        pickup_end = pickup_start + timedelta(hours=1)
+        signup_deadline = pickup_start - timedelta(hours=3)
         trip = self.admin_client.post(
             "/api/trips/",
             {
                 "title": "Cancel Cutoff",
                 "origin": "A",
                 "destination": "B",
-                "service_date": "2026-04-03",
-                "pickup_window_start": "2026-04-03T10:00:00Z",
-                "pickup_window_end": "2026-04-03T11:00:00Z",
+                "service_date": pickup_start.date().isoformat(),
+                "pickup_window_start": pickup_start.isoformat().replace("+00:00", "Z"),
+                "pickup_window_end": pickup_end.isoformat().replace("+00:00", "Z"),
                 "timezone_id": "UTC",
-                "signup_deadline": "2026-04-03T07:00:00Z",
+                "signup_deadline": signup_deadline.isoformat().replace("+00:00", "Z"),
                 "capacity_limit": 2,
                 "pricing_model": "flat",
                 "fare_cents": 1000,
@@ -1049,17 +1056,24 @@ class EndToEndSuite(TestCase):
         self.assertEqual(cutoff_resp.status_code, 400)
 
     def test_16b_cancel_and_refund_require_booking_write_permission(self):
+        pickup_start = (timezone.now() + timedelta(days=2)).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        pickup_end = pickup_start + timedelta(hours=1)
+        signup_deadline = pickup_start - timedelta(hours=3)
         trip = self.admin_client.post(
             "/api/trips/",
             {
                 "title": "Booking Permission Gate",
                 "origin": "A",
                 "destination": "B",
-                "service_date": "2026-04-03",
-                "pickup_window_start": "2026-04-03T10:00:00Z",
-                "pickup_window_end": "2026-04-03T11:00:00Z",
+                "service_date": pickup_start.date().isoformat(),
+                "pickup_window_start": pickup_start.isoformat().replace("+00:00", "Z"),
+                "pickup_window_end": pickup_end.isoformat().replace("+00:00", "Z"),
                 "timezone_id": "UTC",
-                "signup_deadline": "2026-04-03T07:00:00Z",
+                "signup_deadline": signup_deadline.isoformat().replace("+00:00", "Z"),
                 "capacity_limit": 2,
                 "pricing_model": "flat",
                 "fare_cents": 1000,
@@ -1094,7 +1108,7 @@ class EndToEndSuite(TestCase):
         )
         UserRole.objects.create(user=restricted_user, role=restricted_role)
         restricted_client = APIClient()
-        restricted_client.force_authenticate(user=restricted_user)
+        restricted_client.force_login(restricted_user)
 
         cancel_denied = restricted_client.post(
             f"/api/trips/bookings/{booking.data['id']}/cancel/",
@@ -1115,7 +1129,7 @@ class EndToEndSuite(TestCase):
             {"reason": "change of plans"},
             format="json",
         )
-        self.assertEqual(cancel_allowed.status_code, 200)
+        self.assertEqual(cancel_allowed.status_code, 200, cancel_allowed.data)
 
         refund_allowed = self.senior_client.post(
             f"/api/trips/bookings/{booking.data['id']}/refund-request/",
@@ -2497,8 +2511,21 @@ class EndToEndSuite(TestCase):
         self.assertNotIn("password", joined.lower())
 
     def test_42_security_config_command_validates_key_presence_and_format(self):
-        previous = os.environ.get("APP_AES256_KEY_B64")
+        tracked_vars = {
+            "APP_AES256_KEY_B64": os.environ.get("APP_AES256_KEY_B64"),
+            "DJANGO_SECRET_KEY": os.environ.get("DJANGO_SECRET_KEY"),
+            "MYSQL_PASSWORD": os.environ.get("MYSQL_PASSWORD"),
+            "MYSQL_ROOT_PASSWORD": os.environ.get("MYSQL_ROOT_PASSWORD"),
+            "DB_ADMIN_PASSWORD": os.environ.get("DB_ADMIN_PASSWORD"),
+            "BACKUP_PASSPHRASE": os.environ.get("BACKUP_PASSPHRASE"),
+        }
         try:
+            os.environ["DJANGO_SECRET_KEY"] = "valid-test-django-secret-key-1234567890"
+            os.environ["MYSQL_PASSWORD"] = "valid-test-db-password-12345"
+            os.environ["MYSQL_ROOT_PASSWORD"] = "valid-test-root-password-12345"
+            os.environ["DB_ADMIN_PASSWORD"] = "valid-test-root-password-12345"
+            os.environ["BACKUP_PASSPHRASE"] = "valid-test-backup-passphrase-12345"
+
             os.environ.pop("APP_AES256_KEY_B64", None)
             with self.assertRaises(CommandError):
                 call_command("check_security_config")
@@ -2518,14 +2545,15 @@ class EndToEndSuite(TestCase):
                 call_command("check_security_config")
 
             os.environ["APP_AES256_KEY_B64"] = (
-                "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+                "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmM0MjA="
             )
             call_command("check_security_config")
         finally:
-            if previous is None:
-                os.environ.pop("APP_AES256_KEY_B64", None)
-            else:
-                os.environ["APP_AES256_KEY_B64"] = previous
+            for key, value in tracked_vars.items():
+                if value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = value
 
     def test_43_startup_fails_for_missing_or_default_aes_key(self):
         backend_dir = Path(__file__).resolve().parents[1]
@@ -2566,10 +2594,14 @@ class EndToEndSuite(TestCase):
     def test_44_startup_succeeds_with_valid_32_byte_aes_key(self):
         backend_dir = Path(__file__).resolve().parents[1]
         valid_env = os.environ.copy()
-        valid_env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        valid_env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value"
+        valid_env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmM0MjA="
+        valid_env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value-123456789"
         valid_env["APP_RUNTIME_PROFILE"] = "production"
         valid_env["DJANGO_DEBUG"] = "false"
+        valid_env["MYSQL_PASSWORD"] = "valid-prod-db-password-12345"
+        valid_env["MYSQL_ROOT_PASSWORD"] = "valid-prod-root-password-12345"
+        valid_env["DB_ADMIN_PASSWORD"] = "valid-prod-root-password-12345"
+        valid_env["BACKUP_PASSPHRASE"] = "valid-prod-backup-passphrase-12345"
         valid = subprocess.run(
             [sys.executable, "manage.py", "check"],
             cwd=backend_dir,
@@ -2661,8 +2693,12 @@ class EndToEndSuite(TestCase):
     def test_47_startup_fails_with_debug_enabled_outside_dev_profile(self):
         backend_dir = Path(__file__).resolve().parents[1]
         env = os.environ.copy()
-        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value"
+        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmM0MjA="
+        env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value-123456789"
+        env["MYSQL_PASSWORD"] = "valid-prod-db-password-12345"
+        env["MYSQL_ROOT_PASSWORD"] = "valid-prod-root-password-12345"
+        env["DB_ADMIN_PASSWORD"] = "valid-prod-root-password-12345"
+        env["BACKUP_PASSPHRASE"] = "valid-prod-backup-passphrase-12345"
         env["DJANGO_DEBUG"] = "true"
         env["APP_RUNTIME_PROFILE"] = "production"
 
@@ -2682,8 +2718,12 @@ class EndToEndSuite(TestCase):
     def test_48_startup_allows_debug_enabled_in_explicit_dev_profile(self):
         backend_dir = Path(__file__).resolve().parents[1]
         env = os.environ.copy()
-        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
-        env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value"
+        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmM0MjA="
+        env["DJANGO_SECRET_KEY"] = "not-placeholder-secret-value-123456789"
+        env["MYSQL_PASSWORD"] = "valid-prod-db-password-12345"
+        env["MYSQL_ROOT_PASSWORD"] = "valid-prod-root-password-12345"
+        env["DB_ADMIN_PASSWORD"] = "valid-prod-root-password-12345"
+        env["BACKUP_PASSPHRASE"] = "valid-prod-backup-passphrase-12345"
         env["DJANGO_DEBUG"] = "true"
         env["APP_RUNTIME_PROFILE"] = "dev"
 
@@ -2700,7 +2740,11 @@ class EndToEndSuite(TestCase):
     def test_49_startup_fails_without_django_secret_key(self):
         backend_dir = Path(__file__).resolve().parents[1]
         env = os.environ.copy()
-        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmNkZWY="
+        env["APP_AES256_KEY_B64"] = "MDEyMzQ1Njc4OWFiY2RlZjAxMjM0NTY3ODlhYmM0MjA="
+        env["MYSQL_PASSWORD"] = "valid-prod-db-password-12345"
+        env["MYSQL_ROOT_PASSWORD"] = "valid-prod-root-password-12345"
+        env["DB_ADMIN_PASSWORD"] = "valid-prod-root-password-12345"
+        env["BACKUP_PASSPHRASE"] = "valid-prod-backup-passphrase-12345"
         env["APP_RUNTIME_PROFILE"] = "production"
         env["DJANGO_DEBUG"] = "false"
         env.pop("DJANGO_SECRET_KEY", None)

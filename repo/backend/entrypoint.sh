@@ -35,6 +35,9 @@ for attempt in range(120):
         time.sleep(1)
 PY
 
+echo "Validating security configuration..."
+python manage.py check_security_config
+
 echo "Applying database migrations..."
 python manage.py migrate --noinput
 
