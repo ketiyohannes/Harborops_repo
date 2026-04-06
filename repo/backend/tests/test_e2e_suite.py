@@ -1139,17 +1139,25 @@ class EndToEndSuite(TestCase):
         self.assertEqual(refund_allowed.status_code, 201)
 
     def test_17_refund_flow_end_to_end(self):
+        pickup_start = (timezone.now() + timedelta(days=2)).replace(
+            minute=0,
+            second=0,
+            microsecond=0,
+        )
+        pickup_end = pickup_start + timedelta(hours=1)
+        signup_deadline = pickup_start - timedelta(hours=3)
+
         trip = self.admin_client.post(
             "/api/trips/",
             {
                 "title": "Refund Flow",
                 "origin": "A",
                 "destination": "B",
-                "service_date": "2026-04-04",
-                "pickup_window_start": "2026-04-04T10:00:00Z",
-                "pickup_window_end": "2026-04-04T11:00:00Z",
+                "service_date": pickup_start.date().isoformat(),
+                "pickup_window_start": pickup_start.isoformat().replace("+00:00", "Z"),
+                "pickup_window_end": pickup_end.isoformat().replace("+00:00", "Z"),
                 "timezone_id": "UTC",
-                "signup_deadline": "2026-04-04T07:30:00Z",
+                "signup_deadline": signup_deadline.isoformat().replace("+00:00", "Z"),
                 "capacity_limit": 2,
                 "pricing_model": "flat",
                 "fare_cents": 1200,
